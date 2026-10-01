@@ -23,10 +23,11 @@ if CommandLine.arguments.contains("--dump") {
     if let planUsage, let fh = planUsage.fiveHourPercent {
         print("Claude 5h usage  \(fh)%  (real, from Claude desktop app cache, as of \(Fmt.ago(planUsage.date)))"
             + (planUsage.weeklyPercent.map { "  ·  weekly \($0)%" } ?? ""))
+    } else if let fraction = UsageBudget.fraction(snapshot: usage, config: config) {
+        print("Claude 5h usage  \(Fmt.percent(fraction))  (no desktop app cache — using configured budget)")
     } else {
-        let fraction = UsageBudget.fraction(snapshot: usage, config: config)
-        print("Claude 5h usage  \(fraction.map(Fmt.percent) ?? "—")  (no desktop app cache — "
-            + (UsageBudget.isAutoCalibrated(config: config) ? "auto-calibrated estimate)" : "configured budget)"))
+        print("Claude 5h usage  —  (no desktop app cache, no configured budget — open"
+            + " Claude's Settings → Usage to refresh the cache)")
     }
     if let weeklyReset = SevenDayWindow.nextReset() {
         print("Weekly (all models) resets in \(Fmt.duration(weeklyReset.timeIntervalSinceNow))"

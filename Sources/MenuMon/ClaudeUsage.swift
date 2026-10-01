@@ -105,16 +105,21 @@ struct UsageSnapshot {
     var activeSessions: [(project: String, session: String, lastActivity: Date, cost: Double)] = []
     var hasEstimatedPricing = false
     var totalRecords = 0
-    /// Highest cost seen in any 5-hour span over the last 48h — used to auto-scale
-    /// the "Claude usage" percentage when the user hasn't set an explicit budget.
+    /// Highest cost seen in any 5-hour span over the last 48h. Informational only
+    /// (shown as "busiest 5h" context) — not used to compute a percentage, since
+    /// doing so is only ever a true fraction when there's a second data point to
+    /// compare against; with a single burst of activity (the common case) the
+    /// current window always ties for "busiest," which pins the result at 100%
+    /// regardless of actual load. Not useful as a quota substitute.
     var historicalMaxWindowCost: Double = 0
 }
 
-/// There is no API for a subscription plan's real rate-limit quota, so "usage %"
-/// has to come from somewhere else: either a budget the user names explicitly, or
-/// (by default) how the current 5h window compares to the busiest 5h window seen
-/// recently. The latter is a relative "how loaded am I right now" measure, not a
-/// true quota fraction — `isAutoCalibrated` tells the UI which one it's showing.
+/// There is no API for a subscription plan's real rate-limit quota — the only real
+/// number comes from PlanUsageReader (the Claude desktop app's own cache). This is
+/// strictly a fallback for when that cache is missing or stale: it only produces a
+/// fraction when the user has explicitly named a budget in config.json. With no
+/// real cache and no configured budget, this returns nil — the UI should show "no
+/// data" rather than synthesize a percentage that isn't backed by anything real.
 enum UsageBudget {
     static func fraction(snapshot: UsageSnapshot, config: Config) -> Double? {
         guard snapshot.totalRecords > 0 else { return nil }
@@ -124,12 +129,7 @@ enum UsageBudget {
         if config.fiveHourTokenBudget > 0 {
             return Double(snapshot.window.tokens) / Double(config.fiveHourTokenBudget)
         }
-        let ceiling = max(snapshot.historicalMaxWindowCost, snapshot.window.cost, 0.01)
-        return snapshot.window.cost / ceiling
-    }
-
-    static func isAutoCalibrated(config: Config) -> Bool {
-        config.fiveHourCostBudget <= 0 && config.fiveHourTokenBudget <= 0
+        return nil
     }
 }
 

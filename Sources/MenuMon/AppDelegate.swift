@@ -219,8 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - UI
 
     /// Real quota percentage when the Claude desktop app's own cache has it (see
-    /// PlanUsageReader); falls back to a configured budget, then to a self-calibrated
-    /// relative estimate, then to nothing.
+    /// PlanUsageReader); falls back to a configured budget, then to nil — never a
+    /// synthesized estimate (see UsageBudget's doc comment for why).
     private func claudeUsageFraction() -> Double? {
         if let fh = planUsage?.fiveHourPercent { return Double(fh) / 100 }
         return UsageBudget.fraction(snapshot: usage, config: config)

@@ -255,8 +255,8 @@ final class PanelViewController: NSViewController {
             claudeDetail.stringValue = "resets in \(Fmt.duration(FiveHourWindow.timeRemaining()))"
                 + "  ·  as of \(Fmt.ago(planUsage.date))"
         } else if usage.totalRecords > 0, let fraction = UsageBudget.fraction(snapshot: usage, config: config) {
-            // Fallback when the desktop app's cache isn't available: a configured
-            // budget, or a self-calibrated relative estimate — not a true quota.
+            // Fallback: the desktop app's cache is missing/stale, but the user has
+            // named an explicit budget in config.json.
             claudeValue.stringValue = Fmt.percent(fraction)
             claudeValue.textColor = Palette.load(fraction)
             windowBar.isHidden = false
@@ -266,18 +266,19 @@ final class PanelViewController: NSViewController {
                 claudeDetail.stringValue =
                     "\(Fmt.cost(usage.window.cost)) of \(Fmt.cost(config.fiveHourCostBudget)) budget"
                     + "  ·  no desktop app usage cache found"
-            } else if config.fiveHourTokenBudget > 0 {
+            } else {
                 claudeDetail.stringValue =
                     "\(Fmt.tokens(usage.window.tokens)) of \(Fmt.tokens(config.fiveHourTokenBudget)) tok budget"
                     + "  ·  no desktop app usage cache found"
-            } else {
-                claudeDetail.stringValue =
-                    "estimated: vs \(Fmt.cost(usage.historicalMaxWindowCost)) busiest 5h  ·  not a real quota"
             }
         } else {
+            // No real quota data available at all. plan-usage-history.json only
+            // gets a fresh sample written when you open Claude's Settings → Usage
+            // page — it doesn't update continuously like chat does — so it can go
+            // stale for days of normal use. Rather than guess, show nothing.
             claudeValue.stringValue = "—"
             windowBar.isHidden = true
-            claudeDetail.stringValue = "No usage data found"
+            claudeDetail.stringValue = "No real quota data — open Claude's Settings → Usage to refresh"
         }
 
         if usage.totalRecords == 0 {
