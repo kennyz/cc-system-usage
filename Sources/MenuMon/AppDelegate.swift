@@ -22,7 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var history: [Double] = []
     private var cpu = CPUReading()
     private var memory = MemoryReading()
-    private var processes: [ProcessReading] = []
+    private var processes = TopProcesses()
     private var usage = UsageSnapshot()
     private var planUsage: PlanUsageSample?
     private var weeklyReset: Date?

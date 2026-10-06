@@ -28,10 +28,13 @@ final class PanelViewController: NSViewController {
     private let memCleanupStatus = UI.label("", size: 10, color: .secondaryLabelColor)
     private var cleanupStatusClearWorkItem: DispatchWorkItem?
 
-    // Processes — collapsed by default; the header toggles it.
+    // Processes — both lists collapsed by default; each header toggles its list.
     private let processStack = UI.vstack([], spacing: 3)
     private lazy var processToggle = makeDisclosure(action: #selector(toggleProcesses))
     private var processesExpanded = false
+    private let memProcessStack = UI.vstack([], spacing: 3)
+    private lazy var memProcessToggle = makeDisclosure(action: #selector(toggleMemProcesses))
+    private var memProcessesExpanded = false
 
     // Claude
     private let claudeValue = UI.label("—", size: 20, weight: .medium, mono: true)
@@ -85,6 +88,8 @@ final class PanelViewController: NSViewController {
             UI.separator(),
             processToggle,
             processStack,
+            memProcessToggle,
+            memProcessStack,
             UI.separator(),
             headerRow("Claude usage", value: claudeValue),
             windowBar,
@@ -112,13 +117,13 @@ final class PanelViewController: NSViewController {
         ])
 
         // Full-width children inside a .leading-aligned stack.
-        for child in [cpuSpark, memBar, windowBar, weeklyBar, processStack, modelStack, footerRow, cleanupRow]
+        for child in [cpuSpark, memBar, windowBar, weeklyBar, processStack, memProcessStack, modelStack, footerRow, cleanupRow]
             as [NSView] {
             child.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
 
         view = content
-        updateProcessToggle()
+        updateProcessToggles()
     }
 
     private func headerRow(_ title: String, value: NSView) -> NSStackView {
@@ -144,22 +149,33 @@ final class PanelViewController: NSViewController {
         return button
     }
 
-    private func updateProcessToggle() {
-        let symbol = processesExpanded ? "chevron.down" : "chevron.right"
-        processToggle.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+    private func updateProcessToggles() {
+        updateDisclosure(processToggle, stack: processStack, title: "TOP CPU PROCESSES", expanded: processesExpanded)
+        updateDisclosure(memProcessToggle, stack: memProcessStack, title: "TOP MEMORY PROCESSES",
+                         expanded: memProcessesExpanded)
+    }
+
+    private func updateDisclosure(_ toggle: NSButton, stack: NSStackView, title: String, expanded: Bool) {
+        let symbol = expanded ? "chevron.down" : "chevron.right"
+        toggle.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
-        processToggle.attributedTitle = NSAttributedString(
-            string: " TOP PROCESSES",
+        toggle.attributedTitle = NSAttributedString(
+            string: " " + title,
             attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
                 .foregroundColor: NSColor.secondaryLabelColor,
             ])
-        processStack.isHidden = !processesExpanded || processStack.arrangedSubviews.isEmpty
+        stack.isHidden = !expanded || stack.arrangedSubviews.isEmpty
     }
 
     @objc private func toggleProcesses() {
         processesExpanded.toggle()
-        updateProcessToggle()
+        updateProcessToggles()
+    }
+
+    @objc private func toggleMemProcesses() {
+        memProcessesExpanded.toggle()
+        updateProcessToggles()
     }
 
     /// Bold, colored "resets in …" line — the countdown is the thing people glance
@@ -216,7 +232,7 @@ final class PanelViewController: NSViewController {
         cpu: CPUReading,
         history: [Double],
         memory: MemoryReading,
-        processes: [ProcessReading],
+        processes: TopProcesses,
         usage: UsageSnapshot,
         planUsage: PlanUsageSample?,
         weeklyReset: Date?,
@@ -248,26 +264,29 @@ final class PanelViewController: NSViewController {
         }
         memPressure.stringValue = pressureText
 
-        rebuild(processStack, with: processes.map { process in
-            let name = UI.label(process.command, size: 11)
-            let cpuText = UI.label(
-                String(format: "%.1f%%", process.cpu), size: 11,
-                color: .secondaryLabelColor, mono: true, align: .right)
-            let memText = UI.label(
-                Fmt.compactBytes(process.residentBytes), size: 11,
-                color: .secondaryLabelColor, mono: true, align: .right)
-            cpuText.widthAnchor.constraint(equalToConstant: 48).isActive = true
-            memText.widthAnchor.constraint(equalToConstant: 52).isActive = true
-            let row = UI.row([name, NSView(), cpuText, memText], spacing: 4)
-            row.alignment = .firstBaseline
-            return row
-        })
+        rebuild(processStack, with: processes.byCPU.map(processRow))
+        rebuild(memProcessStack, with: processes.byMemory.map(processRow))
 
-        updateProcessToggle()
+        updateProcessToggles()
 
         updateClaude(usage: usage, planUsage: planUsage, weeklyReset: weeklyReset, config: config)
 
         footer.stringValue = "updated \(Fmt.ago(updatedAt))"
+    }
+
+    private func processRow(_ process: ProcessReading) -> NSView {
+        let name = UI.label(process.command, size: 11)
+        let cpuText = UI.label(
+            String(format: "%.1f%%", process.cpu), size: 11,
+            color: .secondaryLabelColor, mono: true, align: .right)
+        let memText = UI.label(
+            Fmt.compactBytes(process.residentBytes), size: 11,
+            color: .secondaryLabelColor, mono: true, align: .right)
+        cpuText.widthAnchor.constraint(equalToConstant: 48).isActive = true
+        memText.widthAnchor.constraint(equalToConstant: 52).isActive = true
+        let row = UI.row([name, NSView(), cpuText, memText], spacing: 4)
+        row.alignment = .firstBaseline
+        return row
     }
 
     private func updateClaude(

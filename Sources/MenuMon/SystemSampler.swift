@@ -37,6 +37,12 @@ struct ProcessReading {
     var command: String
 }
 
+/// The heaviest processes by CPU and, separately, by resident memory.
+struct TopProcesses {
+    var byCPU: [ProcessReading] = []
+    var byMemory: [ProcessReading] = []
+}
+
 /// Samples host-wide CPU and memory counters via Mach APIs.
 final class SystemSampler {
 
@@ -135,7 +141,7 @@ final class SystemSampler {
 
     /// Shells out to `ps`. Only call this while the panel is visible — it is far more
     /// expensive than the Mach counters above.
-    func sampleTopProcesses(limit: Int = 5) -> [ProcessReading] {
+    func sampleTopProcesses(limit: Int = 5) -> TopProcesses {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["-Aceo", "pid=,pcpu=,rss=,comm=", "-r"]
@@ -146,12 +152,12 @@ final class SystemSampler {
         do {
             try process.run()
         } catch {
-            return []
+            return TopProcesses()
         }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
-        guard let text = String(data: data, encoding: .utf8) else { return [] }
+        guard let text = String(data: data, encoding: .utf8) else { return TopProcesses() }
         var rows: [ProcessReading] = []
         for line in text.split(separator: "\n") {
             let fields = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
@@ -165,8 +171,10 @@ final class SystemSampler {
                 cpu: cpu,
                 residentBytes: rssKB * 1024,
                 command: String(fields[3]).trimmingCharacters(in: .whitespaces)))
-            if rows.count >= limit { break }
         }
-        return rows
+        // ps -r already sorts by CPU; memory needs its own ordering.
+        return TopProcesses(
+            byCPU: Array(rows.prefix(limit)),
+            byMemory: Array(rows.sorted { $0.residentBytes > $1.residentBytes }.prefix(limit)))
     }
 }
