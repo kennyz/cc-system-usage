@@ -5,6 +5,16 @@ struct PlanUsageSample {
     let org: String
     let fiveHourPercent: Int?   // "fh" — current 5-hour rate-limit window, 0...100
     let weeklyPercent: Int?     // "sd" — longer rolling window (shown as "Weekly" in Claude's own UI), 0...100
+    var fiveHourReset: Date? = nil  // server-provided; nil when the source doesn't carry it
+    var weeklyReset: Date? = nil
+    var source: String = "Claude desktop app cache"
+
+    /// Time until the 5-hour window resets: the server's own `resets_at` when this
+    /// sample has one that's still in the future, else the fixed-grid estimate.
+    func fiveHourRemaining(now: Date = Date()) -> TimeInterval {
+        if let reset = fiveHourReset, reset > now { return reset.timeIntervalSince(now) }
+        return FiveHourWindow.timeRemaining(after: now)
+    }
 }
 
 /// Reads the Claude desktop app's own usage cache. This is the same number shown
@@ -23,7 +33,15 @@ enum PlanUsageReader {
     /// isn't officially documented enough to trust extrapolating past that.
     private static let maxAge: TimeInterval = 6 * 60 * 60
 
+    /// Newest of the two local caches: Claude Code's (refreshed while the CLI is in
+    /// use) and the desktop app's (refreshed only while the desktop app is open).
+    /// Picking the newer one keeps the bar in step with whichever app was used last.
     static func latest(now: Date = Date()) -> PlanUsageSample? {
+        let candidates = [ClaudeCodeUsageReader.latest(now: now), desktopLatest(now: now)].compactMap { $0 }
+        return candidates.max(by: { $0.date < $1.date })
+    }
+
+    private static func desktopLatest(now: Date) -> PlanUsageSample? {
         guard let data = try? Data(contentsOf: url),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let samples = root["samples"] as? [[String: Any]]
@@ -48,6 +66,54 @@ enum PlanUsageReader {
             org: latest.org,
             fiveHourPercent: latest.usage["fh"] as? Int,
             weeklyPercent: latest.usage["sd"] as? Int)
+    }
+}
+
+/// Reads Claude Code's own usage cache: the `cachedUsageUtilization` object in
+/// `~/.claude.json`, which the CLI refreshes from Anthropic's usage endpoint (it's
+/// what `/usage` shows). Unlike the desktop app's cache it also carries the real
+/// `resets_at` for both windows.
+enum ClaudeCodeUsageReader {
+    static var url: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
+    }
+
+    private static let maxAge: TimeInterval = 6 * 60 * 60
+
+    static func latest(now: Date = Date()) -> PlanUsageSample? {
+        guard let data = try? Data(contentsOf: url),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let cached = root["cachedUsageUtilization"] as? [String: Any],
+              let fetchedAtMs = cached["fetchedAtMs"] as? Double,
+              let utilization = cached["utilization"] as? [String: Any]
+        else { return nil }
+
+        let date = Date(timeIntervalSince1970: fetchedAtMs / 1000)
+        guard now.timeIntervalSince(date) < maxAge else { return nil }
+
+        let fiveHour = utilization["five_hour"] as? [String: Any]
+        let sevenDay = utilization["seven_day"] as? [String: Any]
+        return PlanUsageSample(
+            date: date,
+            org: cached["accountUuid"] as? String ?? "",
+            fiveHourPercent: percent(fiveHour?["utilization"]),
+            weeklyPercent: percent(sevenDay?["utilization"]),
+            fiveHourReset: resetDate(fiveHour?["resets_at"]),
+            weeklyReset: resetDate(sevenDay?["resets_at"]),
+            source: "Claude Code cache")
+    }
+
+    private static func percent(_ value: Any?) -> Int? {
+        (value as? NSNumber).map { Int($0.doubleValue.rounded()) }
+    }
+
+    private static func resetDate(_ value: Any?) -> Date? {
+        guard let string = value as? String else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: string) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: string)
     }
 }
 

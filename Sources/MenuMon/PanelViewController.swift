@@ -25,27 +25,32 @@ final class PanelViewController: NSViewController {
     private let memBar = BarView()
     private let memPressure = UI.label("", size: 11, color: .secondaryLabelColor, mono: true)
     private lazy var freeMemoryButton = makeButton("Free Up Memory", action: #selector(freeMemoryTapped))
-    private let memCleanupStatus = UI.label("", size: 10, color: .tertiaryLabelColor)
+    private let memCleanupStatus = UI.label("", size: 10, color: .secondaryLabelColor)
     private var cleanupStatusClearWorkItem: DispatchWorkItem?
 
-    // Processes
+    // Processes — collapsed by default; the header toggles it.
     private let processStack = UI.vstack([], spacing: 3)
+    private lazy var processToggle = makeDisclosure(action: #selector(toggleProcesses))
+    private var processesExpanded = false
 
     // Claude
     private let claudeValue = UI.label("—", size: 20, weight: .medium, mono: true)
     private let windowBar = BarView()
     private let claudeDetail = UI.label("", size: 11, color: .secondaryLabelColor, mono: true)
+    private let claudeReset = UI.label("", size: 13, weight: .semibold, mono: true)
     private let weeklyValue = UI.label("—", size: 13, weight: .medium, mono: true, align: .right)
     private let weeklyBar = BarView()
     private let weeklyDetail = UI.label("", size: 11, color: .secondaryLabelColor, mono: true)
+    private let weeklyResetLabel = UI.label("", size: 13, weight: .semibold, mono: true)
     private let costLine = UI.label("", size: 11, color: .secondaryLabelColor, mono: true)
     private let modelStack = UI.vstack([], spacing: 3)
-    private let pricingNote = UI.label("", size: 10, color: .tertiaryLabelColor)
+    private let pricingNote = UI.label("", size: 10, color: .secondaryLabelColor)
 
-    private let footer = UI.label("", size: 10, color: .tertiaryLabelColor)
+    private let footer = UI.label("", size: 10, color: .secondaryLabelColor)
 
     override func loadView() {
-        let content = NSView()
+        let content = OpaqueBackgroundView()
+        content.wantsLayer = true
         content.translatesAutoresizingMaskIntoConstraints = false
 
         cpuSpark.translatesAutoresizingMaskIntoConstraints = false
@@ -54,10 +59,10 @@ final class PanelViewController: NSViewController {
         memBar.heightAnchor.constraint(equalToConstant: 6).isActive = true
         windowBar.translatesAutoresizingMaskIntoConstraints = false
         windowBar.heightAnchor.constraint(equalToConstant: 6).isActive = true
-        windowBar.tint = .systemBlue
+        windowBar.tint = Palette.blue
         weeklyBar.translatesAutoresizingMaskIntoConstraints = false
         weeklyBar.heightAnchor.constraint(equalToConstant: 6).isActive = true
-        weeklyBar.tint = .systemBlue
+        weeklyBar.tint = Palette.blue
 
         let refreshButton = makeButton("Refresh", action: #selector(refreshTapped))
         let quitButton = makeButton("Quit", action: #selector(quitTapped))
@@ -78,14 +83,16 @@ final class PanelViewController: NSViewController {
             memPressure,
             cleanupRow,
             UI.separator(),
-            UI.sectionHeader("Top processes"),
+            processToggle,
             processStack,
             UI.separator(),
             headerRow("Claude usage", value: claudeValue),
             windowBar,
+            claudeReset,
             claudeDetail,
             UI.row([UI.label("All models", size: 12, color: .secondaryLabelColor), NSView(), weeklyValue]),
             weeklyBar,
+            weeklyResetLabel,
             weeklyDetail,
             costLine,
             modelStack,
@@ -111,6 +118,7 @@ final class PanelViewController: NSViewController {
         }
 
         view = content
+        updateProcessToggle()
     }
 
     private func headerRow(_ title: String, value: NSView) -> NSStackView {
@@ -125,6 +133,47 @@ final class PanelViewController: NSViewController {
         button.controlSize = .small
         button.font = .systemFont(ofSize: 11)
         return button
+    }
+
+    private func makeDisclosure(action: Selector) -> NSButton {
+        let button = NSButton(title: "", target: self, action: action)
+        button.isBordered = false
+        button.setButtonType(.momentaryChange)
+        button.imagePosition = .imageLeading
+        button.contentTintColor = .secondaryLabelColor
+        return button
+    }
+
+    private func updateProcessToggle() {
+        let symbol = processesExpanded ? "chevron.down" : "chevron.right"
+        processToggle.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
+        processToggle.attributedTitle = NSAttributedString(
+            string: " TOP PROCESSES",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ])
+        processStack.isHidden = !processesExpanded || processStack.arrangedSubviews.isEmpty
+    }
+
+    @objc private func toggleProcesses() {
+        processesExpanded.toggle()
+        updateProcessToggle()
+    }
+
+    /// Bold, colored "resets in …" line — the countdown is the thing people glance
+    /// for, so it gets more weight than the secondary detail text.
+    private func setReset(_ label: NSTextField, date: Date?, remaining: TimeInterval?) {
+        guard let remaining, remaining > 0 else {
+            label.stringValue = date == nil ? "⟳ reset time unavailable" : "⟳ reset pending"
+            label.textColor = .secondaryLabelColor
+            return
+        }
+        var text = "⟳ resets in \(Fmt.duration(remaining))"
+        if let date { text += "  ·  \(Fmt.resetTime(date))" }
+        label.stringValue = text
+        label.textColor = remaining < 3600 ? Palette.green : Palette.orange
     }
 
     @objc private func refreshTapped() { onRefresh?() }
@@ -214,6 +263,8 @@ final class PanelViewController: NSViewController {
             return row
         })
 
+        updateProcessToggle()
+
         updateClaude(usage: usage, planUsage: planUsage, weeklyReset: weeklyReset, config: config)
 
         footer.stringValue = "updated \(Fmt.ago(updatedAt))"
@@ -229,35 +280,36 @@ final class PanelViewController: NSViewController {
             weeklyBar.isHidden = false
             weeklyBar.value = fraction
             weeklyBar.tint = Palette.load(fraction)
-            if let weeklyReset {
-                let remaining = weeklyReset.timeIntervalSinceNow
-                weeklyDetail.stringValue = remaining > 0
-                    ? "resets in \(Fmt.duration(remaining))"
-                    : "reset pending"
-            } else {
-                weeklyDetail.stringValue = "reset time unavailable"
-            }
+            weeklyResetLabel.isHidden = false
+            setReset(weeklyResetLabel, date: weeklyReset, remaining: weeklyReset?.timeIntervalSinceNow)
+            weeklyDetail.stringValue = ""
+            weeklyDetail.isHidden = true
         } else {
             weeklyValue.stringValue = "—"
             weeklyBar.isHidden = true
+            weeklyResetLabel.isHidden = true
             weeklyDetail.stringValue = ""
+            weeklyDetail.isHidden = true
         }
 
         if let planUsage, let fh = planUsage.fiveHourPercent {
-            // Real number from the Claude desktop app's own usage cache — the same
-            // one shown in its "Current session" bar.
+            // Real number from Claude Code's or the desktop app's own usage cache,
+            // whichever is newer (see PlanUsageReader.latest).
             let fraction = Double(fh) / 100
             claudeValue.stringValue = "\(fh)%"
             claudeValue.textColor = Palette.load(fraction)
             windowBar.isHidden = false
             windowBar.value = fraction
             windowBar.tint = Palette.load(fraction)
-            claudeDetail.stringValue = "resets in \(Fmt.duration(FiveHourWindow.timeRemaining()))"
-                + "  ·  as of \(Fmt.ago(planUsage.date))"
+            let remaining = planUsage.fiveHourRemaining()
+            claudeReset.isHidden = false
+            setReset(claudeReset, date: Date().addingTimeInterval(remaining), remaining: remaining)
+            claudeDetail.stringValue = "as of \(Fmt.ago(planUsage.date))  ·  \(planUsage.source)"
         } else if usage.totalRecords > 0, let fraction = UsageBudget.fraction(snapshot: usage, config: config) {
             // Fallback: the desktop app's cache is missing/stale, but the user has
             // named an explicit budget in config.json.
             claudeValue.stringValue = Fmt.percent(fraction)
+            claudeReset.isHidden = true
             claudeValue.textColor = Palette.load(fraction)
             windowBar.isHidden = false
             windowBar.value = fraction
@@ -277,6 +329,7 @@ final class PanelViewController: NSViewController {
             // page — it doesn't update continuously like chat does — so it can go
             // stale for days of normal use. Rather than guess, show nothing.
             claudeValue.stringValue = "—"
+            claudeReset.isHidden = true
             windowBar.isHidden = true
             claudeDetail.stringValue = "No real quota data — open Claude's Settings → Usage to refresh"
         }

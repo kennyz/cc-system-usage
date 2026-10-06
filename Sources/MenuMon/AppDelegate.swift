@@ -228,7 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusBarTitle() {
-        let countdown = Fmt.countdown(FiveHourWindow.timeRemaining())
+        let countdown = Fmt.countdown(planUsage?.fiveHourRemaining() ?? FiveHourWindow.timeRemaining())
         statusItem.button?.attributedTitle = StatusBarRenderer.title(
             claudeFraction: claudeUsageFraction(), resetCountdown: countdown,
             memoryFraction: memory.usedFraction)
@@ -242,7 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             processes: processes,
             usage: usage,
             planUsage: planUsage,
-            weeklyReset: weeklyReset,
+            weeklyReset: planUsage?.weeklyReset ?? weeklyReset,
             config: config,
             updatedAt: lastUpdate)
     }

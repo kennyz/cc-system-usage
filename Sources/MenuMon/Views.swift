@@ -41,9 +41,18 @@ enum Fmt {
 
     static func duration(_ seconds: TimeInterval) -> String {
         let total = Int(max(seconds, 0))
-        let hours = total / 3600
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3600
         let minutes = (total % 3600) / 60
+        if days > 0 { return "\(days)d \(hours)h" }
         return hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
+    }
+
+    /// Local wall-clock time of a reset: "16:00" today, "Sun 19:00" within a week.
+    static func resetTime(_ date: Date, now: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = Calendar.current.isDate(date, inSameDayAs: now) ? "HH:mm" : "EEE HH:mm"
+        return formatter.string(from: date)
     }
 
     /// "04:10" style countdown for the menu bar.
@@ -56,12 +65,31 @@ enum Fmt {
 // MARK: - Load colors
 
 enum Palette {
+    /// Deeper than the stock system colors, which wash out on light backgrounds;
+    /// dark mode keeps the brighter variants so they still pop on dark gray.
+    static let green = dynamic(light: 0x1A7F37, dark: 0x30D158)
+    static let orange = dynamic(light: 0xB35900, dark: 0xFF9F0A)
+    static let red = dynamic(light: 0xC4161C, dark: 0xFF453A)
+    static let blue = dynamic(light: 0x0A5FD6, dark: 0x409CFF)
+
     /// Green below 60%, amber to 85%, red above.
     static func load(_ fraction: Double) -> NSColor {
         switch fraction {
-        case ..<0.60: return .systemGreen
-        case ..<0.85: return .systemOrange
-        default: return .systemRed
+        case ..<0.60: return green
+        case ..<0.85: return orange
+        default: return red
+        }
+    }
+
+    private static func dynamic(light: Int, dark: Int) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let hex = isDark ? dark : light
+            return NSColor(
+                srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+                green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255,
+                alpha: 1)
         }
     }
 }
@@ -70,7 +98,7 @@ enum Palette {
 
 final class SparklineView: NSView {
     var values: [Double] = [] { didSet { needsDisplay = true } }
-    var tint: NSColor = .systemBlue
+    var tint: NSColor = Palette.blue
 
     override var isFlipped: Bool { true }
 
@@ -224,7 +252,7 @@ enum UI {
     }
 
     static func sectionHeader(_ text: String) -> NSTextField {
-        label(text.uppercased(), size: 10, weight: .semibold, color: .tertiaryLabelColor)
+        label(text.uppercased(), size: 10, weight: .semibold, color: .secondaryLabelColor)
     }
 
     static func row(_ views: [NSView], spacing: CGFloat = 6) -> NSStackView {
@@ -248,5 +276,14 @@ enum UI {
         let view = NSBox()
         view.boxType = .separator
         return view
+    }
+}
+
+/// Solid panel background. NSPopover's default material is translucent, which lets
+/// whatever is behind the popover tint the panel and muddy the colored numbers.
+final class OpaqueBackgroundView: NSView {
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
     }
 }

@@ -17,11 +17,12 @@ if CommandLine.arguments.contains("--dump") {
         + "  (\(Fmt.bytes(memory.used)) / \(Fmt.bytes(memory.total)))"
         + "  pressure \(Fmt.percent(memory.pressure))")
     print("")
-    let resetCountdown = Fmt.countdown(FiveHourWindow.timeRemaining())
-    print("Resets in  \(resetCountdown)  (\(Fmt.duration(FiveHourWindow.timeRemaining())))"
-        + "  — fixed UTC grid, next boundary \(FiveHourWindow.nextReset())")
+    let remaining = planUsage?.fiveHourRemaining() ?? FiveHourWindow.timeRemaining()
+    let resetSource = planUsage?.fiveHourReset.map { "server resets_at \($0)" }
+        ?? "fixed UTC grid, next boundary \(FiveHourWindow.nextReset())"
+    print("Resets in  \(Fmt.countdown(remaining))  (\(Fmt.duration(remaining)))  — \(resetSource)")
     if let planUsage, let fh = planUsage.fiveHourPercent {
-        print("Claude 5h usage  \(fh)%  (real, from Claude desktop app cache, as of \(Fmt.ago(planUsage.date)))"
+        print("Claude 5h usage  \(fh)%  (real, from \(planUsage.source), as of \(Fmt.ago(planUsage.date)))"
             + (planUsage.weeklyPercent.map { "  ·  weekly \($0)%" } ?? ""))
     } else if let fraction = UsageBudget.fraction(snapshot: usage, config: config) {
         print("Claude 5h usage  \(Fmt.percent(fraction))  (no desktop app cache — using configured budget)")
@@ -29,7 +30,10 @@ if CommandLine.arguments.contains("--dump") {
         print("Claude 5h usage  —  (no desktop app cache, no configured budget — open"
             + " Claude's Settings → Usage to refresh the cache)")
     }
-    if let weeklyReset = SevenDayWindow.nextReset() {
+    if let weeklyReset = planUsage?.weeklyReset {
+        print("Weekly (all models) resets in \(Fmt.duration(weeklyReset.timeIntervalSinceNow))"
+            + "  — at \(weeklyReset)  (from \(planUsage?.source ?? ""))")
+    } else if let weeklyReset = SevenDayWindow.nextReset() {
         print("Weekly (all models) resets in \(Fmt.duration(weeklyReset.timeIntervalSinceNow))"
             + "  — at \(weeklyReset)  (parsed from IndexedDB, best-effort)")
     } else {
