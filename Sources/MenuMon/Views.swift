@@ -201,7 +201,10 @@ enum StatusBarRenderer {
         let result = NSMutableAttributedString()
         let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
 
-        func appendGroup(icon: NSImage?, text: String, color: NSColor) {
+        // Text and icons are always white.
+        let color = NSColor.white
+
+        func appendGroup(icon: NSImage?, text: String) {
             if let icon {
                 let attachment = NSTextAttachment()
                 attachment.image = icon.tinted(color)
@@ -214,16 +217,12 @@ enum StatusBarRenderer {
                 attributes: [.font: font, .foregroundColor: color]))
         }
 
-        let claudeColor = claudeFraction.map(Palette.load) ?? .secondaryLabelColor
-        appendGroup(
-            icon: claudeIcon,
-            text: claudeFraction.map(Fmt.percent) ?? "—",
-            color: claudeColor)
+        appendGroup(icon: claudeIcon, text: claudeFraction.map(Fmt.percent) ?? "—")
         result.append(NSAttributedString(
             string: " · \(resetCountdown)",
-            attributes: [.font: font, .foregroundColor: claudeColor]))
+            attributes: [.font: font, .foregroundColor: color]))
         result.append(NSAttributedString(string: "  "))
-        appendGroup(icon: memoryIcon, text: Fmt.percent(memoryFraction), color: Palette.load(memoryFraction))
+        appendGroup(icon: memoryIcon, text: Fmt.percent(memoryFraction))
 
         return result
     }
